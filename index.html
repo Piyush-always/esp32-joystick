@@ -25,7 +25,7 @@
         <button class="btn" style="visibility: hidden;"></button>
     </div>
 
-    <script>
+<!--     <script>
         // Connect to MQTT Broker
         //const mqttBroker = "ws://broker.hivemq.com:8000/mqtt"; // HiveMQ WebSocket broker
         const mqttBroker = "ws://test.mosquitto.org:8080/mqtt"; // WebSocket port for Mosquitto
@@ -40,6 +40,40 @@
             console.log("Sending:", command);
             client.publish(topic, command);
         }
-    </script>
+    </script> -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script>
+    // Connect to MQTT Broker (Use secure WebSocket URL)
+    const mqttBroker = "wss://test.mosquitto.org:8081/mqtt";  
+    const topic = "esp32/joystick";  
+
+    let client;
+
+    window.onload = function () {
+        try {
+            client = mqtt.connect(mqttBroker);
+
+            client.on("connect", function () {
+                console.log("Connected to MQTT broker!");
+            });
+
+            client.on("error", function (error) {
+                console.error("MQTT Connection Error:", error);
+            });
+        } catch (err) {
+            console.error("Connection Error:", err);
+        }
+    };
+
+    function sendCommand(command) {
+        if (client && client.connected) {
+            console.log("Sending:", command);
+            client.publish(topic, command);
+        } else {
+            console.error("MQTT Client not connected!");
+        }
+    }
+</script>
+
 </body>
 </html>
