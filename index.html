@@ -3,77 +3,225 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Joystick Control</title>
-    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <title>ESP32 MQTT Controller</title>
     <style>
-        body { text-align: center; font-family: Arial, sans-serif; }
-        #joystick { display: grid; grid-template-columns: 100px 100px 100px; grid-template-rows: 100px 100px 100px; justify-content: center; gap: 10px; margin-top: 50px; }
-        .btn { width: 100px; height: 100px; font-size: 20px; cursor: pointer; }
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            background-color: #f0f4f8;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        .connection-status {
+            margin-bottom: 20px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .connecting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .control-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 80px);
+            grid-template-rows: repeat(3, 80px);
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        .btn {
+            padding: 20px;
+            font-size: 18px;
+            font-weight: bold;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            box-shadow: 0 3px 5px rgba(0,0,0,0.2);
+        }
+        .btn:hover {
+            background-color: #2980b9;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 10px rgba(0,0,0,0.2);
+        }
+        .btn:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 3px rgba(0,0,0,0.2);
+        }
+        .log-container {
+            width: 80%;
+            max-width: 500px;
+            height: 200px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            font-family: monospace;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        .timestamp {
+            color: #6c757d;
+            font-size: 0.8em;
+            margin-right: 10px;
+        }
     </style>
 </head>
 <body>
-    <h1>Namaste!! 🚀 ESP32 Joystick Control</h1>
-    <div id="joystick">
-        <button class="btn" style="visibility: hidden;"></button>
-        <button class="btn" onclick="sendCommand('UP')">⬆️</button>
-        <button class="btn" style="visibility: hidden;"></button>
-        <button class="btn" onclick="sendCommand('LEFT')">⬅️</button>
-        <button class="btn" onclick="sendCommand('STOP')">🛑</button>
-        <button class="btn" onclick="sendCommand('RIGHT')">➡️</button>
-        <button class="btn" style="visibility: hidden;"></button>
-        <button class="btn" onclick="sendCommand('DOWN')">⬇️</button>
-        <button class="btn" style="visibility: hidden;"></button>
+    <h1>ESP32 Remote Control</h1>
+    
+    <div id="connectionStatus" class="connection-status connecting">Connecting to MQTT broker...</div>
+    
+    <div class="control-pad">
+        <div></div>
+        <button class="btn" id="up">UP</button>
+        <div></div>
+        <button class="btn" id="left">LEFT</button>
+        <div></div>
+        <button class="btn" id="right">RIGHT</button>
+        <div></div>
+        <button class="btn" id="down">DOWN</button>
+        <div></div>
     </div>
-
-<!--     <script>
-        // Connect to MQTT Broker
-        //const mqttBroker = "ws://broker.hivemq.com:8000/mqtt"; // HiveMQ WebSocket broker
-        const mqttBroker = "ws://test.mosquitto.org:8080/mqtt"; // WebSocket port for Mosquitto
-        const topic = "esp32/joystick"; // MQTT topic for joystick control
-        const client = mqtt.connect(mqttBroker);
-
-        client.on("connect", function () {
-            console.log("Connected to MQTT broker!");
-        });
-
-        function sendCommand(command) {
-            console.log("Sending:", command);
-            client.publish(topic, command);
-        }
-    </script> -->
-    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-<script>
-    // Connect to MQTT Broker (Use secure WebSocket URL)
-    const mqttBroker = "wss://test.mosquitto.org:8081/mqtt";  
-    const topic = "esp32/joystick";  
-
-    let client;
-
-    window.onload = function () {
-        try {
-            client = mqtt.connect(mqttBroker);
-
-            client.on("connect", function () {
-                console.log("Connected to MQTT broker!");
+    
+    <h3>Communication Log</h3>
+    <div id="logContainer" class="log-container"></div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script>
+        // Get DOM elements
+        const connectionStatus = document.getElementById('connectionStatus');
+        const logContainer = document.getElementById('logContainer');
+        const buttons = document.querySelectorAll('.btn');
+        
+        // MQTT configuration
+        const clientId = "webController-" + Math.random().toString(16).substr(2, 8);
+        const host = "broker.hivemq.com";
+        const port = 8000; // WebSocket port
+        const commandTopic = "esp32controller/commands";
+        const statusTopic = "esp32controller/status";
+        
+        // Disable buttons initially
+        buttons.forEach(btn => btn.disabled = true);
+        
+        // Initialize MQTT client
+        const client = new Paho.MQTT.Client(host, port, clientId);
+        
+        // Set callback handlers
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+        
+        // Connect to the MQTT broker
+        connect();
+        
+        function connect() {
+            updateConnectionStatus("connecting", "Connecting to MQTT broker...");
+            client.connect({
+                onSuccess: onConnect,
+                onFailure: onFailure,
+                useSSL: false,
+                reconnect: true,
+                timeout: 5
             });
-
-            client.on("error", function (error) {
-                console.error("MQTT Connection Error:", error);
-            });
-        } catch (err) {
-            console.error("Connection Error:", err);
         }
-    };
-
-    function sendCommand(command) {
-        if (client && client.connected) {
-            console.log("Sending:", command);
-            client.publish(topic, command);
-        } else {
-            console.error("MQTT Client not connected!");
+        
+        function onConnect() {
+            updateConnectionStatus("connected", "Connected to MQTT broker");
+            // Subscribe to status messages from ESP32
+            client.subscribe(statusTopic);
+            // Enable control buttons
+            buttons.forEach(btn => btn.disabled = false);
+            // Log connection
+            addLogEntry("Connected to MQTT broker successfully");
         }
-    }
-</script>
-
+        
+        function onFailure(e) {
+            updateConnectionStatus("disconnected", `Failed to connect: ${e.errorMessage}`);
+            addLogEntry(`Connection failed: ${e.errorMessage}`);
+            // Try to reconnect after delay
+            setTimeout(connect, 5000);
+        }
+        
+        function onConnectionLost(responseObject) {
+            if (responseObject.errorCode !== 0) {
+                updateConnectionStatus("disconnected", `Connection lost: ${responseObject.errorMessage}`);
+                addLogEntry(`Connection lost: ${responseObject.errorMessage}`);
+                // Disable buttons
+                buttons.forEach(btn => btn.disabled = true);
+                // Try to reconnect after delay
+                setTimeout(connect, 5000);
+            }
+        }
+        
+        function onMessageArrived(message) {
+            const payload = message.payloadString;
+            addLogEntry(`Received message: ${payload}`);
+        }
+        
+        function sendCommand(direction) {
+            if (!client.isConnected()) {
+                addLogEntry("Not connected - cannot send command");
+                return;
+            }
+            
+            try {
+                const message = new Paho.MQTT.Message(direction);
+                message.destinationName = commandTopic;
+                client.send(message);
+                addLogEntry(`Sent command: ${direction}`);
+            } catch (error) {
+                addLogEntry(`Failed to send command: ${error.message}`);
+            }
+        }
+        
+        function updateConnectionStatus(status, message) {
+            connectionStatus.className = `connection-status ${status}`;
+            connectionStatus.textContent = message;
+        }
+        
+        function addLogEntry(message) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            const timestamp = document.createElement('span');
+            timestamp.className = 'timestamp';
+            timestamp.textContent = new Date().toLocaleTimeString();
+            
+            entry.appendChild(timestamp);
+            entry.appendChild(document.createTextNode(message));
+            
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        // Set up button click handlers
+        document.getElementById('up').addEventListener('click', () => sendCommand('up'));
+        document.getElementById('down').addEventListener('click', () => sendCommand('down'));
+        document.getElementById('left').addEventListener('click', () => sendCommand('left'));
+        document.getElementById('right').addEventListener('click', () => sendCommand('right'));
+    </script>
 </body>
 </html>
