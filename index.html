@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Joystick Control</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        body { text-align: center; font-family: Arial, sans-serif; }
+        #joystick { display: grid; grid-template-columns: 100px 100px 100px; grid-template-rows: 100px 100px 100px; justify-content: center; gap: 10px; margin-top: 50px; }
+        .btn { width: 100px; height: 100px; font-size: 20px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Namaste!! 🚀 ESP32 Joystick Control</h1>
+    <div id="joystick">
+        <button class="btn" style="visibility: hidden;"></button>
+        <button class="btn" onclick="sendCommand('UP')">⬆️</button>
+        <button class="btn" style="visibility: hidden;"></button>
+        <button class="btn" onclick="sendCommand('LEFT')">⬅️</button>
+        <button class="btn" onclick="sendCommand('STOP')">🛑</button>
+        <button class="btn" onclick="sendCommand('RIGHT')">➡️</button>
+        <button class="btn" style="visibility: hidden;"></button>
+        <button class="btn" onclick="sendCommand('DOWN')">⬇️</button>
+        <button class="btn" style="visibility: hidden;"></button>
+    </div>
+
+    <script>
+        // Connect to MQTT Broker
+        const mqttBroker = "wss://broker.hivemq.com:8000/mqtt"; // HiveMQ WebSocket broker
+        const topic = "esp32/joystick"; // MQTT topic for joystick control
+        const client = mqtt.connect(mqttBroker);
+
+        client.on("connect", function () {
+            console.log("Connected to MQTT broker!");
+        });
+
+        function sendCommand(command) {
+            console.log("Sending:", command);
+            client.publish(topic, command);
+        }
+    </script>
+</body>
+</html>
