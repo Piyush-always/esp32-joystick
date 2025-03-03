@@ -27,7 +27,7 @@
 
     <script>
         // Connect to MQTT Broker
-        const mqttBroker = "wss://broker.hivemq.com:8000/mqtt"; // HiveMQ WebSocket broker
+        const mqttBroker = "ws://broker.hivemq.com:8000/mqtt"; // HiveMQ WebSocket broker
         const topic = "esp32/joystick"; // MQTT topic for joystick control
         const client = mqtt.connect(mqttBroker);
 
