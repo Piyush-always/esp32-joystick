@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 MQTT Controller</title>
+    <title>NAMASTE Controller</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -15,41 +15,57 @@
         
         h1 {
             color: #333;
+            margin-bottom: 5px;
+            font-size: 2.5em;
+        }
+        
+        .subtitle {
+            color: #666;
             margin-bottom: 30px;
+            font-size: 0.9em;
         }
         
-        .broker-settings {
-            margin-bottom: 20px;
-            padding: 15px;
-            background-color: #f5f5f5;
-            border-radius: 5px;
-        }
-        
-        .broker-settings input, .broker-settings select {
-            padding: 8px;
-            margin: 5px;
-        }
-        
-        .broker-settings button {
-            padding: 8px 15px;
-        }
-        
-        .control-panel {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            grid-gap: 10px;
-            max-width: 300px;
+        .control-container {
+            max-width: 400px;
             margin: 0 auto;
         }
         
+        .control-row {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .center-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        
+        .bottom-row {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .center-space {
+            width: 80px;
+        }
+        
         button {
-            padding: 15px;
-            font-size: 16px;
+            width: 100px;
+            height: 80px;
+            font-size: 18px;
+            font-weight: bold;
             cursor: pointer;
             background-color: #4CAF50;
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 10px;
+            touch-action: manipulation;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
         
         button:hover {
@@ -58,6 +74,7 @@
         
         button:active {
             background-color: #3e8e41;
+            transform: translateY(2px);
         }
         
         button:disabled {
@@ -65,13 +82,22 @@
             cursor: not-allowed;
         }
         
-        #stop {
+        #power {
             background-color: #f44336;
-            grid-column: 2;
+            width: 150px;
+            margin: 20px auto;
         }
         
-        #stop:hover {
+        #power.on {
+            background-color: #4CAF50;
+        }
+        
+        #power:hover {
             background-color: #d32f2f;
+        }
+        
+        #power.on:hover {
+            background-color: #45a049;
         }
         
         #connection-status {
@@ -101,46 +127,39 @@
     </style>
 </head>
 <body>
-    <h1>ESP32 MQTT Controller</h1>
+    <h1>NAMASTE</h1>
+    <div class="subtitle">(ESP32 MQTT Controller)</div>
     
-    <div class="broker-settings">
-        <h3>MQTT Broker Settings</h3>
-        <div>
-            <select id="broker-select">
-                <option value="broker.emqx.io">EMQX (broker.emqx.io)</option>
-                <option value="broker.hivemq.com">HiveMQ (broker.hivemq.com)</option>
-                <option value="test.mosquitto.org">Mosquitto (test.mosquitto.org)</option>
-                <option value="custom">Custom...</option>
-            </select>
-            <input type="text" id="custom-broker" placeholder="Custom broker address" style="display:none;">
-            <input type="number" id="broker-port" value="8000" min="1" max="65535">
-            <button id="connect-button">Connect</button>
-            <button id="disconnect-button" disabled>Disconnect</button>
+    <div class="control-container">
+        <button id="power">ON / OFF</button>
+        
+        <div class="control-row">
+            <button id="up1">UP 1</button>
+            <button id="up2">UP 2</button>
+        </div>
+        
+        <div class="center-row">
+            <button id="left">LEFT</button>
+            <div class="center-space"></div>
+            <button id="right">RIGHT</button>
+        </div>
+        
+        <div class="bottom-row">
+            <button id="down1">DOWN 1</button>
+            <button id="down2">DOWN 2</button>
         </div>
     </div>
     
-    <div class="control-panel">
-        <div></div>
-        <button id="forward" disabled>Forward</button>
-        <div></div>
-        <button id="left" disabled>Left</button>
-        <button id="stop" disabled>Stop</button>
-        <button id="right" disabled>Right</button>
-        <div></div>
-        <button id="backward" disabled>Backward</button>
-        <div></div>
-    </div>
+    <div id="connection-status" class="connected">Connected to broker.emqx.io:8084</div>
     
-    <div id="connection-status" class="disconnected">Disconnected</div>
-    
-    <h2>Status Messages</h2>
+    <h3>Status Messages</h3>
     <div id="status-messages"></div>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
     <script>
-        // Default MQTT settings
-        let brokerHost = "broker.emqx.io";
-        let brokerPort = 8000; // WebSocket port
+        // Fixed MQTT settings
+        const brokerHost = "broker.emqx.io";
+        const brokerPort = 8084; // WebSocket port
         const commandTopic = "esp32controller/commands";
         const statusTopic = "esp32controller/status";
         
@@ -149,53 +168,20 @@
         
         // Create MQTT client
         let client = null;
+        
+        // Command interval tracking
+        let activeCommand = null;
+        let commandInterval = null;
+        const COMMAND_REPEAT_INTERVAL = 100; // ms
+        
+        // Power state
+        let isPowerOn = false;
 
-        // DOM elements
-        const brokerSelect = document.getElementById("broker-select");
-        const customBroker = document.getElementById("custom-broker");
-        const brokerPortInput = document.getElementById("broker-port");
-        const connectButton = document.getElementById("connect-button");
-        const disconnectButton = document.getElementById("disconnect-button");
-        
-        // Event listeners for broker settings
-        brokerSelect.addEventListener("change", function() {
-            if (this.value === "custom") {
-                customBroker.style.display = "inline";
-                brokerHost = customBroker.value || "localhost";
-            } else {
-                customBroker.style.display = "none";
-                brokerHost = this.value;
-            }
-        });
-        
-        customBroker.addEventListener("input", function() {
-            if (this.value) {
-                brokerHost = this.value;
-            }
-        });
-        
-        brokerPortInput.addEventListener("change", function() {
-            brokerPort = parseInt(this.value);
-        });
-        
-        connectButton.addEventListener("click", initializeAndConnect);
-        disconnectButton.addEventListener("click", disconnect);
+        // Initialize connection on page load
+        document.addEventListener('DOMContentLoaded', initializeAndConnect);
         
         function initializeAndConnect() {
             updateConnectionStatus("Initializing connection...");
-            
-            if (client && client.isConnected()) {
-                client.disconnect();
-            }
-            
-            // Get the latest broker settings
-            if (brokerSelect.value === "custom") {
-                brokerHost = customBroker.value || "localhost";
-            } else {
-                brokerHost = brokerSelect.value;
-            }
-            
-            brokerPort = parseInt(brokerPortInput.value);
             
             // Create a new MQTT client
             client = new Paho.MQTT.Client(brokerHost, brokerPort, clientId);
@@ -213,7 +199,7 @@
                 timeout: 3,
                 onSuccess: onConnect,
                 onFailure: onFailure,
-                useSSL: window.location.protocol === "https:"
+                useSSL: true // Use SSL for port 8084
             };
             
             updateConnectionStatus("Connecting to " + brokerHost + ":" + brokerPort + "...");
@@ -227,47 +213,37 @@
             }
         }
         
-        function disconnect() {
-            if (client && client.isConnected()) {
-                client.disconnect();
-                updateConnectionStatus("Disconnected", false);
-                logMessage("Disconnected from MQTT broker");
-                enableControls(false);
-                connectButton.disabled = false;
-                disconnectButton.disabled = true;
-            }
-        }
-        
         function onConnect() {
-            updateConnectionStatus("Connected to " + brokerHost, true);
+            updateConnectionStatus("Connected to " + brokerHost + ":" + brokerPort, true);
             logMessage("Connected to MQTT broker: " + brokerHost);
             
             // Subscribe to status messages
             client.subscribe(statusTopic);
             logMessage("Subscribed to: " + statusTopic);
             
-            // Enable buttons
-            enableControls(true);
-            connectButton.disabled = true;
-            disconnectButton.disabled = false;
+            // Enable controls
+            document.querySelectorAll('button').forEach(button => {
+                button.disabled = false;
+            });
         }
         
         function onFailure(error) {
-            updateConnectionStatus("Connection failed: " + error.errorMessage);
+            updateConnectionStatus("Connection failed: " + error.errorMessage, false);
             logMessage("Connection failed: " + error.errorMessage);
             
-            // Enable connect button
-            connectButton.disabled = false;
-            disconnectButton.disabled = true;
+            // Try to reconnect after delay
+            setTimeout(initializeAndConnect, 5000);
         }
         
         function onConnectionLost(responseObject) {
+            stopActiveCommand();
+            
             if (responseObject.errorCode !== 0) {
-                updateConnectionStatus("Connection lost: " + responseObject.errorMessage);
+                updateConnectionStatus("Connection lost: " + responseObject.errorMessage, false);
                 logMessage("Connection lost: " + responseObject.errorMessage);
-                enableControls(false);
-                connectButton.disabled = false;
-                disconnectButton.disabled = true;
+                
+                // Try to reconnect after delay
+                setTimeout(initializeAndConnect, 5000);
             }
         }
         
@@ -293,6 +269,33 @@
             }
         }
         
+        function startCommandInterval(command) {
+            if (!isPowerOn && command !== "POWER") {
+                logMessage("Power is OFF. Turn on power first.");
+                return;
+            }
+            
+            stopActiveCommand();
+            
+            activeCommand = command;
+            sendCommand(command + "-HIGH");
+            
+            commandInterval = setInterval(() => {
+                if (activeCommand === command) {
+                    sendCommand(command + "-HIGH");
+                }
+            }, COMMAND_REPEAT_INTERVAL);
+        }
+        
+        function stopActiveCommand() {
+            if (activeCommand) {
+                clearInterval(commandInterval);
+                sendCommand(activeCommand + "-LOW");
+                activeCommand = null;
+                commandInterval = null;
+            }
+        }
+        
         function updateConnectionStatus(status, isConnected = false) {
             const statusElement = document.getElementById("connection-status");
             statusElement.textContent = status;
@@ -311,23 +314,58 @@
             statusElement.scrollTop = statusElement.scrollHeight;
         }
         
-        function enableControls(enable) {
-            const buttons = document.querySelectorAll(".control-panel button");
-            buttons.forEach(button => {
-                button.disabled = !enable;
+        // Helper function to set up control buttons
+        function setupControlButton(id, command) {
+            const button = document.getElementById(id);
+            
+            // For desktop
+            button.addEventListener("mousedown", () => startCommandInterval(command));
+            button.addEventListener("mouseup", stopActiveCommand);
+            button.addEventListener("mouseleave", stopActiveCommand);
+            
+            // For mobile
+            button.addEventListener("touchstart", (e) => {
+                e.preventDefault(); // Prevent default behavior
+                startCommandInterval(command);
+            });
+            button.addEventListener("touchend", (e) => {
+                e.preventDefault(); // Prevent default behavior
+                stopActiveCommand();
+            });
+            button.addEventListener("touchcancel", (e) => {
+                e.preventDefault(); // Prevent default behavior
+                stopActiveCommand();
             });
         }
         
-        // Set up button event listeners
-        document.getElementById("forward").addEventListener("click", () => sendCommand("forward"));
-        document.getElementById("backward").addEventListener("click", () => sendCommand("backward"));
-        document.getElementById("left").addEventListener("click", () => sendCommand("left"));
-        document.getElementById("right").addEventListener("click", () => sendCommand("right"));
-        document.getElementById("stop").addEventListener("click", () => sendCommand("stop"));
+        // Set up button event listeners for continuous press buttons
+        setupControlButton("left", "LEFT");
+        setupControlButton("right", "RIGHT");
+        setupControlButton("up1", "UP1");
+        setupControlButton("up2", "UP2");
+        setupControlButton("down1", "DOWN1");
+        setupControlButton("down2", "DOWN2");
+        
+        // Power button
+        const powerButton = document.getElementById("power");
+        powerButton.addEventListener("click", () => {
+            isPowerOn = !isPowerOn;
+            if (isPowerOn) {
+                powerButton.textContent = "TURN OFF";
+                powerButton.classList.add("on");
+                sendCommand("POWER-ON");
+                logMessage("Power turned ON");
+            } else {
+                powerButton.textContent = "TURN ON";
+                powerButton.classList.remove("on");
+                sendCommand("POWER-OFF");
+                logMessage("Power turned OFF");
+                stopActiveCommand();
+            }
+        });
         
         // Initially log the setup
         logMessage("Controller interface loaded");
-        logMessage("Ready to connect to MQTT broker");
     </script>
 </body>
 </html>
