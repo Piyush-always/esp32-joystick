@@ -82,6 +82,12 @@
             cursor: not-allowed;
         }
         
+        button.active {
+            background-color: #3e8e41;
+            transform: translateY(2px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
         #power {
             background-color: #f44336;
             width: 150px;
@@ -179,8 +185,8 @@
         let client = null;
         
         // Command interval tracking
-        let activeCommand = null;
-        let commandInterval = null;
+        let activeCommands = new Set();
+        let commandIntervals = {};
         const COMMAND_REPEAT_INTERVAL = 50; // ms
         
         // Power state
@@ -240,7 +246,7 @@
         }
         
         function onConnectionLost(responseObject) {
-            stopActiveCommand();
+            stopAllCommands();
             
             if (responseObject.errorCode !== 0) {
                 updateConnectionStatus("Connection lost: " + responseObject.errorMessage, false);
@@ -281,25 +287,51 @@
                 return;
             }
             
-            stopActiveCommand();
+            // If already active, don't restart
+            if (activeCommands.has(commandType)) {
+                return;
+            }
             
-            activeCommand = commandType;
+            // Add to active commands
+            activeCommands.add(commandType);
+            
+            // Update button UI
+            const button = document.getElementById(commandType.toLowerCase());
+            button.classList.add('active');
+            
+            // Send initial command
             sendCommand(commandType, true);
             
-            commandInterval = setInterval(() => {
-                if (activeCommand === commandType) {
+            // Set up interval for this command
+            commandIntervals[commandType] = setInterval(() => {
+                if (activeCommands.has(commandType)) {
                     sendCommand(commandType, true);
                 }
             }, COMMAND_REPEAT_INTERVAL);
         }
         
-        function stopActiveCommand() {
-            if (activeCommand) {
-                clearInterval(commandInterval);
-                sendCommand(activeCommand, false);
-                activeCommand = null;
-                commandInterval = null;
+        function stopCommand(commandType) {
+            if (activeCommands.has(commandType)) {
+                // Clear interval
+                clearInterval(commandIntervals[commandType]);
+                delete commandIntervals[commandType];
+                
+                // Send off command
+                sendCommand(commandType, false);
+                
+                // Remove from active commands
+                activeCommands.delete(commandType);
+                
+                // Update button UI
+                const button = document.getElementById(commandType.toLowerCase());
+                button.classList.remove('active');
             }
+        }
+        
+        function stopAllCommands() {
+            activeCommands.forEach(commandType => {
+                stopCommand(commandType);
+            });
         }
         
         function updateConnectionStatus(status, isConnected = false) {
@@ -326,8 +358,8 @@
             
             // For desktop
             button.addEventListener("mousedown", () => startCommandInterval(commandType));
-            button.addEventListener("mouseup", stopActiveCommand);
-            button.addEventListener("mouseleave", stopActiveCommand);
+            button.addEventListener("mouseup", () => stopCommand(commandType));
+            button.addEventListener("mouseleave", () => stopCommand(commandType));
             
             // For mobile
             button.addEventListener("touchstart", (e) => {
@@ -336,11 +368,11 @@
             });
             button.addEventListener("touchend", (e) => {
                 e.preventDefault(); // Prevent default behavior
-                stopActiveCommand();
+                stopCommand(commandType);
             });
             button.addEventListener("touchcancel", (e) => {
                 e.preventDefault(); // Prevent default behavior
-                stopActiveCommand();
+                stopCommand(commandType);
             });
         }
         
@@ -364,7 +396,7 @@
                 powerButton.textContent = "TURN ON";
                 powerButton.classList.remove("on");
                 logMessage("Power turned OFF");
-                stopActiveCommand();
+                stopAllCommands();
             }
         });
         
