@@ -124,94 +124,6 @@
             overflow-y: auto;
             text-align: left;
         }
-        
-        /* Slider styles */
-        .slider-container {
-            max-width: 800px;
-            margin: 40px auto;
-            padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            background-color: #f9f9f9;
-        }
-        
-        .sliders-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 40px;
-        }
-        
-        .slider-title {
-            margin-bottom: 20px;
-            color: #333;
-        }
-        
-        .slider-wrapper {
-            flex: 1;
-            margin-bottom: 0;
-            position: relative;
-        }
-        
-        .horizontal-slider {
-            width: 100%;
-            margin: 20px 0;
-        }
-        
-        .vertical-slider-container {
-            height: 200px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto;
-        }
-        
-        .vertical-slider {
-            -webkit-appearance: none;
-            width: 200px;
-            height: 20px;
-            margin: 0;
-            transform: rotate(270deg);
-        }
-        
-        input[type=range] {
-            -webkit-appearance: none;
-            height: 20px;
-            background: #d3d3d3;
-            outline: none;
-            border-radius: 10px;
-        }
-        
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 30px;
-            height: 30px;
-            background: #4CAF50;
-            cursor: pointer;
-            border-radius: 50%;
-        }
-        
-        input[type=range]::-moz-range-thumb {
-            width: 30px;
-            height: 30px;
-            background: #4CAF50;
-            cursor: pointer;
-            border-radius: 50%;
-        }
-        
-        .slider-label {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 5px;
-        }
-        
-        .vertical-labels {
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            height: 200px;
-            margin-right: 10px;
-        }
     </style>
 </head>
 <body>
@@ -238,34 +150,6 @@
         </div>
     </div>
     
-    <!-- New Slider Controls Section -->
-    <div class="slider-container">
-        <h3 class="slider-title">Slider Controls</h3>
-        <div class="sliders-row">
-            <!-- Horizontal Slider (Left-Right) -->
-            <div class="slider-wrapper">
-                <label for="horizontal-slider">Horizontal Control (Left-Right)</label>
-                <input type="range" min="0" max="100" value="50" class="horizontal-slider" id="horizontal-slider">
-                <div class="slider-label">
-                    <span>LEFT</span>
-                    <span>RIGHT</span>
-                </div>
-            </div>
-            
-            <!-- Vertical Slider (Up-Down) -->
-            <div class="slider-wrapper">
-                <label for="vertical-slider">Vertical Control (Up-Down)</label>
-                <div class="vertical-slider-container">
-                    <div class="vertical-labels">
-                        <span>UP</span>
-                        <span>DOWN</span>
-                    </div>
-                    <input type="range" min="0" max="100" value="50" class="vertical-slider" id="vertical-slider">
-                </div>
-            </div>
-        </div>
-    </div>
-    
     <div id="connection-status" class="connected">Connected to broker.emqx.io:8084</div>
     
     <h3>Status Messages</h3>
@@ -277,7 +161,16 @@
         const brokerHost = "broker.emqx.io";
         const brokerPort = 8084; // WebSocket port
         const commandTopic = "esp32controller/commands";
-        const statusTopic = "esp32controller/status";
+        
+        // Command byte mapping
+        const CMD = {
+            LEFT: { ON: 0x80, OFF: 0x00 },
+            RIGHT: { ON: 0x81, OFF: 0x01 },
+            UP1: { ON: 0x82, OFF: 0x02 },
+            DOWN1: { ON: 0x83, OFF: 0x03 },
+            UP2: { ON: 0x84, OFF: 0x04 },
+            DOWN2: { ON: 0x85, OFF: 0x05 }
+        };
         
         // Generate a random client ID
         const clientId = "WebClient-" + Math.random().toString(16).substr(2, 8);
@@ -292,15 +185,6 @@
         
         // Power state
         let isPowerOn = false;
-        
-        // Slider values and thresholds
-        const SLIDER_THRESHOLD = 10; // Threshold from center to trigger commands
-        const CENTER_VALUE = 50;
-        let horizontalPreviousState = "CENTER";
-        let verticalPreviousState = "CENTER";
-        let horizontalSliderTimer = null;
-        let verticalSliderTimer = null;
-        const SLIDER_UPDATE_INTERVAL = 100; // ms
 
         // Initialize connection on page load
         document.addEventListener('DOMContentLoaded', initializeAndConnect);
@@ -313,7 +197,6 @@
             
             // Set callback handlers
             client.onConnectionLost = onConnectionLost;
-            client.onMessageArrived = onMessageArrived;
             
             // Connect to the broker
             connect();
@@ -342,17 +225,10 @@
             updateConnectionStatus("Connected to " + brokerHost + ":" + brokerPort, true);
             logMessage("Connected to MQTT broker: " + brokerHost);
             
-            // Subscribe to status messages
-            client.subscribe(statusTopic);
-            logMessage("Subscribed to: " + statusTopic);
-            
             // Enable controls
             document.querySelectorAll('button').forEach(button => {
                 button.disabled = false;
             });
-            
-            // Initialize sliders
-            initializeSliders();
         }
         
         function onFailure(error) {
@@ -375,42 +251,44 @@
             }
         }
         
-        function onMessageArrived(message) {
-            const payload = message.payloadString;
-            logMessage("Status: " + payload);
-        }
-        
-        function sendCommand(command) {
+        function sendCommand(cmdType, isOn) {
             if (!client || !client.isConnected()) {
                 logMessage("Not connected. Cannot send command.");
                 return;
             }
             
-            const message = new Paho.MQTT.Message(command);
+            // Get the command byte based on direction and state
+            const commandByte = isOn ? CMD[cmdType].ON : CMD[cmdType].OFF;
+            
+            // Create a binary message with a single byte
+            const byteArray = new Uint8Array(1);
+            byteArray[0] = commandByte;
+            
+            const message = new Paho.MQTT.Message(byteArray.buffer);
             message.destinationName = commandTopic;
             
             try {
                 client.send(message);
-                logMessage("Sent command: " + command);
+                logMessage(`Sent command: ${cmdType} ${isOn ? 'ON' : 'OFF'} [0x${commandByte.toString(16)}]`);
             } catch (error) {
                 logMessage("Error sending command: " + error.message);
             }
         }
         
-        function startCommandInterval(command) {
-            if (!isPowerOn && command !== "POWER") {
+        function startCommandInterval(commandType) {
+            if (!isPowerOn) {
                 logMessage("Power is OFF. Turn on power first.");
                 return;
             }
             
             stopActiveCommand();
             
-            activeCommand = command;
-            sendCommand(command + "-HIGH");
+            activeCommand = commandType;
+            sendCommand(commandType, true);
             
             commandInterval = setInterval(() => {
-                if (activeCommand === command) {
-                    sendCommand(command + "-HIGH");
+                if (activeCommand === commandType) {
+                    sendCommand(commandType, true);
                 }
             }, COMMAND_REPEAT_INTERVAL);
         }
@@ -418,7 +296,7 @@
         function stopActiveCommand() {
             if (activeCommand) {
                 clearInterval(commandInterval);
-                sendCommand(activeCommand + "-LOW");
+                sendCommand(activeCommand, false);
                 activeCommand = null;
                 commandInterval = null;
             }
@@ -443,18 +321,18 @@
         }
         
         // Helper function to set up control buttons
-        function setupControlButton(id, command) {
+        function setupControlButton(id, commandType) {
             const button = document.getElementById(id);
             
             // For desktop
-            button.addEventListener("mousedown", () => startCommandInterval(command));
+            button.addEventListener("mousedown", () => startCommandInterval(commandType));
             button.addEventListener("mouseup", stopActiveCommand);
             button.addEventListener("mouseleave", stopActiveCommand);
             
             // For mobile
             button.addEventListener("touchstart", (e) => {
                 e.preventDefault(); // Prevent default behavior
-                startCommandInterval(command);
+                startCommandInterval(commandType);
             });
             button.addEventListener("touchend", (e) => {
                 e.preventDefault(); // Prevent default behavior
@@ -466,155 +344,7 @@
             });
         }
         
-        // Initialize slider controls
-        function initializeSliders() {
-            const horizontalSlider = document.getElementById("horizontal-slider");
-            const verticalSlider = document.getElementById("vertical-slider");
-            
-            // Set initial values to center
-            horizontalSlider.value = CENTER_VALUE;
-            verticalSlider.value = CENTER_VALUE;
-            
-            // Set up event listeners
-            horizontalSlider.addEventListener("input", handleHorizontalSlider);
-            horizontalSlider.addEventListener("change", resetHorizontalSlider);
-            
-            verticalSlider.addEventListener("input", handleVerticalSlider);
-            verticalSlider.addEventListener("change", resetVerticalSlider);
-        }
-        
-        // Handle horizontal slider movement
-        function handleHorizontalSlider(e) {
-            if (!isPowerOn) {
-                logMessage("Power is OFF. Turn on power first.");
-                return;
-            }
-            
-            const value = parseInt(e.target.value);
-            let newState = "CENTER";
-            
-            if (value < CENTER_VALUE - SLIDER_THRESHOLD) {
-                newState = "LEFT";
-            } else if (value > CENTER_VALUE + SLIDER_THRESHOLD) {
-                newState = "RIGHT";
-            }
-            
-            // Only send command if state has changed
-            if (newState !== horizontalPreviousState) {
-                // Stop previous command if any
-                if (horizontalPreviousState !== "CENTER") {
-                    sendCommand(horizontalPreviousState + "-LOW");
-                }
-                
-                // Start new command if not center
-                if (newState !== "CENTER") {
-                    sendCommand(newState + "-HIGH");
-                    
-                    // Setup interval for continuous commands
-                    if (horizontalSliderTimer) {
-                        clearInterval(horizontalSliderTimer);
-                    }
-                    
-                    horizontalSliderTimer = setInterval(() => {
-                        sendCommand(newState + "-HIGH");
-                    }, SLIDER_UPDATE_INTERVAL);
-                } else {
-                    // Clear interval if back to center
-                    if (horizontalSliderTimer) {
-                        clearInterval(horizontalSliderTimer);
-                        horizontalSliderTimer = null;
-                    }
-                }
-                
-                horizontalPreviousState = newState;
-            }
-        }
-        
-        // Reset horizontal slider to center on release
-        function resetHorizontalSlider(e) {
-            // Stop any active command
-            if (horizontalPreviousState !== "CENTER") {
-                sendCommand(horizontalPreviousState + "-LOW");
-            }
-            
-            // Clear interval
-            if (horizontalSliderTimer) {
-                clearInterval(horizontalSliderTimer);
-                horizontalSliderTimer = null;
-            }
-            
-            // Reset slider position and state
-            e.target.value = CENTER_VALUE;
-            horizontalPreviousState = "CENTER";
-        }
-        
-        // Handle vertical slider movement
-        function handleVerticalSlider(e) {
-            if (!isPowerOn) {
-                logMessage("Power is OFF. Turn on power first.");
-                return;
-            }
-            
-            const value = parseInt(e.target.value);
-            let newState = "CENTER";
-            
-            // Note: For vertical slider, UP is lower values, DOWN is higher values
-            if (value < CENTER_VALUE - SLIDER_THRESHOLD) {
-                newState = "UP";
-            } else if (value > CENTER_VALUE + SLIDER_THRESHOLD) {
-                newState = "DOWN";
-            }
-            
-            // Only send command if state has changed
-            if (newState !== verticalPreviousState) {
-                // Stop previous command if any
-                if (verticalPreviousState !== "CENTER") {
-                    sendCommand(verticalPreviousState + "-LOW");
-                }
-                
-                // Start new command if not center
-                if (newState !== "CENTER") {
-                    sendCommand(newState + "-HIGH");
-                    
-                    // Setup interval for continuous commands
-                    if (verticalSliderTimer) {
-                        clearInterval(verticalSliderTimer);
-                    }
-                    
-                    verticalSliderTimer = setInterval(() => {
-                        sendCommand(newState + "-HIGH");
-                    }, SLIDER_UPDATE_INTERVAL);
-                } else {
-                    // Clear interval if back to center
-                    if (verticalSliderTimer) {
-                        clearInterval(verticalSliderTimer);
-                        verticalSliderTimer = null;
-                    }
-                }
-                
-                verticalPreviousState = newState;
-            }
-        }
-        
-        // Reset vertical slider to center on release
-        function resetVerticalSlider(e) {
-            // Stop any active command
-            if (verticalPreviousState !== "CENTER") {
-                sendCommand(verticalPreviousState + "-LOW");
-            }
-            
-            // Clear interval
-            if (verticalSliderTimer) {
-                clearInterval(verticalSliderTimer);
-                verticalSliderTimer = null;
-            }
-            
-            // Reset slider position and state
-            e.target.value = CENTER_VALUE;
-            verticalPreviousState = "CENTER";
-        }
-        
-        // Set up button event listeners for continuous press buttons
+        // Set up button event listeners for control buttons
         setupControlButton("left", "LEFT");
         setupControlButton("right", "RIGHT");
         setupControlButton("up1", "UP1");
@@ -629,18 +359,12 @@
             if (isPowerOn) {
                 powerButton.textContent = "TURN OFF";
                 powerButton.classList.add("on");
-                sendCommand("POWER-ON");
                 logMessage("Power turned ON");
             } else {
                 powerButton.textContent = "TURN ON";
                 powerButton.classList.remove("on");
-                sendCommand("POWER-OFF");
                 logMessage("Power turned OFF");
                 stopActiveCommand();
-                
-                // Reset sliders and clear any active slider commands
-                resetHorizontalSlider({target: document.getElementById("horizontal-slider")});
-                resetVerticalSlider({target: document.getElementById("vertical-slider")});
             }
         });
         
