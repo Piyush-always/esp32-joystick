@@ -66,6 +66,7 @@
             border-radius: 10px;
             touch-action: manipulation;
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: background-color 0.3s, transform 0.2s, box-shadow 0.2s;
         }
         
         button:hover {
@@ -79,7 +80,10 @@
         
         button:disabled {
             background-color: #cccccc;
+            color: #999999;
             cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
         
         button.active {
@@ -137,26 +141,26 @@
     <div class="subtitle">(ESP32 MQTT Controller)</div>
     
     <div class="control-container">
-        <button id="power">ON / OFF</button>
+        <button id="power">TURN ON</button>
         
         <div class="control-row">
-            <button id="up1">UP 1</button>
-            <button id="up2">UP 2</button>
+            <button id="up1" disabled>UP 1</button>
+            <button id="up2" disabled>UP 2</button>
         </div>
         
         <div class="center-row">
-            <button id="left">LEFT</button>
+            <button id="left" disabled>LEFT</button>
             <div class="center-space"></div>
-            <button id="right">RIGHT</button>
+            <button id="right" disabled>RIGHT</button>
         </div>
         
         <div class="bottom-row">
-            <button id="down1">DOWN 1</button>
-            <button id="down2">DOWN 2</button>
+            <button id="down1" disabled>DOWN 1</button>
+            <button id="down2" disabled>DOWN 2</button>
         </div>
     </div>
     
-    <div id="connection-status" class="connected">Connected to broker.emqx.io:8084</div>
+    <div id="connection-status" class="disconnected">Initializing connection...</div>
     
     <h3>Status Messages</h3>
     <div id="status-messages"></div>
@@ -191,12 +195,24 @@
         
         // Power state
         let isPowerOn = false;
+        let controlButtons;
 
         // Initialize connection on page load
-        document.addEventListener('DOMContentLoaded', initializeAndConnect);
+        document.addEventListener('DOMContentLoaded', () => {
+            controlButtons = [
+                document.getElementById("left"),
+                document.getElementById("right"),
+                document.getElementById("up1"),
+                document.getElementById("up2"),
+                document.getElementById("down1"),
+                document.getElementById("down2")
+            ];
+            
+            initializeAndConnect();
+        });
         
         function initializeAndConnect() {
-            updateConnectionStatus("Initializing connection...");
+            updateConnectionStatus("Initializing connection...", false);
             
             // Create a new MQTT client
             client = new Paho.MQTT.Client(brokerHost, brokerPort, clientId);
@@ -216,13 +232,13 @@
                 useSSL: true // Use SSL for port 8084
             };
             
-            updateConnectionStatus("Connecting to " + brokerHost + ":" + brokerPort + "...");
+            updateConnectionStatus("Connecting to " + brokerHost + ":" + brokerPort + "...", false);
             logMessage("Connecting to " + brokerHost + ":" + brokerPort);
             
             try {
                 client.connect(options);
             } catch (error) {
-                updateConnectionStatus("Connection error: " + error.message);
+                updateConnectionStatus("Connection error: " + error.message, false);
                 logMessage("Connection error: " + error.message);
             }
         }
@@ -231,15 +247,21 @@
             updateConnectionStatus("Connected to " + brokerHost + ":" + brokerPort, true);
             logMessage("Connected to MQTT broker: " + brokerHost);
             
-            // Enable controls
-            document.querySelectorAll('button').forEach(button => {
-                button.disabled = false;
-            });
+            // Power button is enabled by default once connected
+            document.getElementById("power").disabled = false;
+            
+            // Control buttons are still disabled until power is turned on
+            updateControlButtonsState();
         }
         
         function onFailure(error) {
             updateConnectionStatus("Connection failed: " + error.errorMessage, false);
             logMessage("Connection failed: " + error.errorMessage);
+            
+            // Disable all buttons when connection fails
+            document.querySelectorAll('button').forEach(button => {
+                button.disabled = true;
+            });
             
             // Try to reconnect after delay
             setTimeout(initializeAndConnect, 5000);
@@ -247,6 +269,11 @@
         
         function onConnectionLost(responseObject) {
             stopAllCommands();
+            
+            // Disable all buttons when connection is lost
+            document.querySelectorAll('button').forEach(button => {
+                button.disabled = true;
+            });
             
             if (responseObject.errorCode !== 0) {
                 updateConnectionStatus("Connection lost: " + responseObject.errorMessage, false);
@@ -287,7 +314,7 @@
                 return;
             }
             
-            // If already active, don't restart
+            // If already active, don't restart the interval
             if (activeCommands.has(commandType)) {
                 return;
             }
@@ -302,12 +329,12 @@
             // Send initial command
             sendCommand(commandType, true);
             
-            // Set up interval for this command
+            // Set up interval for this command - using a separate interval for each command
             commandIntervals[commandType] = setInterval(() => {
-                if (activeCommands.has(commandType)) {
-                    sendCommand(commandType, true);
-                }
+                sendCommand(commandType, true);
             }, COMMAND_REPEAT_INTERVAL);
+            
+            logMessage(`Started command: ${commandType}`);
         }
         
         function stopCommand(commandType) {
@@ -325,11 +352,15 @@
                 // Update button UI
                 const button = document.getElementById(commandType.toLowerCase());
                 button.classList.remove('active');
+                
+                logMessage(`Stopped command: ${commandType}`);
             }
         }
         
         function stopAllCommands() {
-            activeCommands.forEach(commandType => {
+            // Create a copy of the set to avoid issues with modification during iteration
+            const commandsToStop = Array.from(activeCommands);
+            commandsToStop.forEach(commandType => {
                 stopCommand(commandType);
             });
         }
@@ -352,24 +383,47 @@
             statusElement.scrollTop = statusElement.scrollHeight;
         }
         
+        function updateControlButtonsState() {
+            controlButtons.forEach(button => {
+                button.disabled = !isPowerOn || !client || !client.isConnected();
+            });
+        }
+        
         // Helper function to set up control buttons
         function setupControlButton(id, commandType) {
             const button = document.getElementById(id);
             
             // For desktop
-            button.addEventListener("mousedown", () => startCommandInterval(commandType));
-            button.addEventListener("mouseup", () => stopCommand(commandType));
-            button.addEventListener("mouseleave", () => stopCommand(commandType));
+            button.addEventListener("mousedown", (e) => {
+                e.preventDefault();
+                if (!button.disabled) {
+                    startCommandInterval(commandType);
+                }
+            });
+            
+            button.addEventListener("mouseup", (e) => {
+                e.preventDefault();
+                stopCommand(commandType);
+            });
+            
+            button.addEventListener("mouseleave", (e) => {
+                e.preventDefault();
+                stopCommand(commandType);
+            });
             
             // For mobile
             button.addEventListener("touchstart", (e) => {
                 e.preventDefault(); // Prevent default behavior
-                startCommandInterval(commandType);
+                if (!button.disabled) {
+                    startCommandInterval(commandType);
+                }
             });
+            
             button.addEventListener("touchend", (e) => {
                 e.preventDefault(); // Prevent default behavior
                 stopCommand(commandType);
             });
+            
             button.addEventListener("touchcancel", (e) => {
                 e.preventDefault(); // Prevent default behavior
                 stopCommand(commandType);
@@ -398,6 +452,9 @@
                 logMessage("Power turned OFF");
                 stopAllCommands();
             }
+            
+            // Update control buttons state based on power
+            updateControlButtonsState();
         });
         
         // Initially log the setup
