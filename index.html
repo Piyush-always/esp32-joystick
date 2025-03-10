@@ -137,26 +137,26 @@
     </style>
 </head>
 <body>
-    <h1>🙏  HARI OM  🙏</h1>
-    <div class="subtitle">(ESP32 MQTT Controller)</div>
+    <h1>🙏  हरि ॐ  🙏</h1>
+    <div class="subtitle">(होली महापर्वणि शुभमस्तु!)</div>
     
     <div class="control-container">
-        <button id="power">TURN ON</button>
+        <button id="power">शुरू करें</button>
         
         <div class="control-row">
-            <button id="up1" disabled>UP 1</button>
-            <button id="up2" disabled>UP 2</button>
+            <button id="up1" disabled>ऊपर 1</button>
+            <button id="up2" disabled>ऊपर 2</button>
         </div>
         
         <div class="center-row">
-            <button id="left" disabled>LEFT</button>
+            <button id="left" disabled>बाएँ</button>
             <div class="center-space"></div>
-            <button id="right" disabled>RIGHT</button>
+            <button id="right" disabled>दाएँ</button>
         </div>
         
         <div class="bottom-row">
-            <button id="down1" disabled>DOWN 1</button>
-            <button id="down2" disabled>DOWN 2</button>
+            <button id="down1" disabled>नीचे 1</button>
+            <button id="down2" disabled>नीचे 2</button>
         </div>
     </div>
     
@@ -443,11 +443,11 @@
         powerButton.addEventListener("click", () => {
             isPowerOn = !isPowerOn;
             if (isPowerOn) {
-                powerButton.textContent = "TURN OFF";
+                powerButton.textContent = "बंद करें";
                 powerButton.classList.add("on");
                 logMessage("Power turned ON");
             } else {
-                powerButton.textContent = "TURN ON";
+                powerButton.textContent = "शुरू करें";
                 powerButton.classList.remove("on");
                 logMessage("Power turned OFF");
                 stopAllCommands();
