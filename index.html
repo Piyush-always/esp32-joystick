@@ -74,6 +74,12 @@
             width: 80px;
         }
         
+        .location-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 30px;
+        }
+        
         button {
             width: 100px;
             height: 80px;
@@ -112,22 +118,30 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
         
-        #power {
-            background-color: #4CAF50;
-            width: 200px;
-            margin: 20px auto;
+        .location {
+            width: 120px;
+            margin: 0 5px;
         }
         
-        #power.on {
+        .location.on {
             background-color: #f44336;
         }
         
-        #power:hover {
+        .location:hover {
             background-color: #45a049;
         }
         
-        #power.on:hover {
+        .location.on:hover {
             background-color: #d32f2f;
+        }
+        
+        .location-name {
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+        
+        .location-action {
+            font-size: 14px;  /* Smaller text for action */
         }
         
         #connection-status {
@@ -170,9 +184,22 @@
         <img src="image2.jpg" alt="Right Corner Image" class="corner-image">
     </div>
     
-    
     <div class="control-container">
-        <button id="power">शुरू करें</button>
+        <!-- Location buttons instead of one power button -->
+        <div class="location-buttons">
+            <button id="surat" class="location">
+                <div class="location-name">सूरत</div>
+                <div class="location-action">शुरू करें</div>
+            </button>
+            <button id="ahmedabad" class="location">
+                <div class="location-name">अहमदाबाद</div>
+                <div class="location-action">शुरू करें</div>
+            </button>
+            <button id="delhi" class="location">
+                <div class="location-name">दिल्ली</div>
+                <div class="location-action">शुरू करें</div>
+            </button>
+        </div>
         
         <div class="control-row">
             <button id="up1" disabled>ऊपर 1</button>
@@ -201,7 +228,13 @@
         // Fixed MQTT settings
         const brokerHost = "broker.emqx.io";
         const brokerPort = 8084; // WebSocket port
-        const commandTopic = "esp32controller/commands";
+        
+        // Location-specific topics
+        const TOPICS = {
+            SURAT: "esp32controller/surat_cmd",
+            AHMEDABAD: "esp32controller/ahmedabad_cmd",
+            DELHI: "esp32controller/delhi_cmd"
+        };
         
         // Command byte mapping
         const CMD = {
@@ -210,7 +243,8 @@
             UP1: { ON: 0x82, OFF: 0x02 },
             DOWN1: { ON: 0x83, OFF: 0x03 },
             UP2: { ON: 0x84, OFF: 0x04 },
-            DOWN2: { ON: 0x85, OFF: 0x05 }
+            DOWN2: { ON: 0x85, OFF: 0x05 },
+            POWER: { ON: 0x86, OFF: 0x06 }
         };
         
         // Generate a random client ID
@@ -224,8 +258,16 @@
         let commandIntervals = {};
         const COMMAND_REPEAT_INTERVAL = 50; // ms
         
-        // Power state
-        let isPowerOn = false;
+        // Location power states
+        let locationStates = {
+            SURAT: false,
+            AHMEDABAD: false,
+            DELHI: false
+        };
+        
+        // Currently active location for directional controls
+        let activeLocation = null;
+        
         let controlButtons;
 
         // Initialize connection on page load
@@ -278,10 +320,12 @@
             updateConnectionStatus("Connected to " + brokerHost + ":" + brokerPort, true);
             logMessage("Connected to MQTT broker: " + brokerHost);
             
-            // Power button is enabled by default once connected
-            document.getElementById("power").disabled = false;
+            // Location buttons are enabled by default once connected
+            document.getElementById("surat").disabled = false;
+            document.getElementById("ahmedabad").disabled = false;
+            document.getElementById("delhi").disabled = false;
             
-            // Control buttons are still disabled until power is turned on
+            // Control buttons are still disabled until a location is turned on
             updateControlButtonsState();
         }
         
@@ -315,7 +359,7 @@
             }
         }
         
-        function sendCommand(cmdType, isOn) {
+        function sendCommand(cmdType, isOn, location) {
             if (!client || !client.isConnected()) {
                 logMessage("Not connected. Cannot send command.");
                 return;
@@ -328,20 +372,23 @@
             const byteArray = new Uint8Array(1);
             byteArray[0] = commandByte;
             
+            // Get the correct topic for the location
+            const topic = TOPICS[location];
+            
             const message = new Paho.MQTT.Message(byteArray.buffer);
-            message.destinationName = commandTopic;
+            message.destinationName = topic;
             
             try {
                 client.send(message);
-                logMessage(`Sent command: ${cmdType} ${isOn ? 'ON' : 'OFF'} [0x${commandByte.toString(16)}]`);
+                logMessage(`Sent command to ${location}: ${cmdType} ${isOn ? 'ON' : 'OFF'} [0x${commandByte.toString(16)}]`);
             } catch (error) {
-                logMessage("Error sending command: " + error.message);
+                logMessage(`Error sending command to ${location}: ${error.message}`);
             }
         }
         
         function startCommandInterval(commandType) {
-            if (!isPowerOn) {
-                logMessage("Power is OFF. Turn on power first.");
+            if (!activeLocation || !locationStates[activeLocation]) {
+                logMessage("No active location is ON. Turn on a location first.");
                 return;
             }
             
@@ -358,14 +405,14 @@
             button.classList.add('active');
             
             // Send initial command
-            sendCommand(commandType, true);
+            sendCommand(commandType, true, activeLocation);
             
             // Set up interval for this command - using a separate interval for each command
             commandIntervals[commandType] = setInterval(() => {
-                sendCommand(commandType, true);
+                sendCommand(commandType, true, activeLocation);
             }, COMMAND_REPEAT_INTERVAL);
             
-            logMessage(`Started command: ${commandType}`);
+            logMessage(`Started ${commandType} command for ${activeLocation}`);
         }
         
         function stopCommand(commandType) {
@@ -374,8 +421,10 @@
                 clearInterval(commandIntervals[commandType]);
                 delete commandIntervals[commandType];
                 
-                // Send off command
-                sendCommand(commandType, false);
+                // Send off command to the active location
+                if (activeLocation) {
+                    sendCommand(commandType, false, activeLocation);
+                }
                 
                 // Remove from active commands
                 activeCommands.delete(commandType);
@@ -384,7 +433,7 @@
                 const button = document.getElementById(commandType.toLowerCase());
                 button.classList.remove('active');
                 
-                logMessage(`Stopped command: ${commandType}`);
+                logMessage(`Stopped ${commandType} command for ${activeLocation}`);
             }
         }
         
@@ -415,8 +464,11 @@
         }
         
         function updateControlButtonsState() {
+            const anyLocationOn = locationStates.SURAT || locationStates.AHMEDABAD || locationStates.DELHI;
+            const isConnected = client && client.isConnected();
+            
             controlButtons.forEach(button => {
-                button.disabled = !isPowerOn || !client || !client.isConnected();
+                button.disabled = !anyLocationOn || !isConnected;
             });
         }
         
@@ -469,27 +521,69 @@
         setupControlButton("down1", "DOWN1");
         setupControlButton("down2", "DOWN2");
         
-        // Power button
-        const powerButton = document.getElementById("power");
-        powerButton.addEventListener("click", () => {
-            isPowerOn = !isPowerOn;
-            if (isPowerOn) {
-                powerButton.textContent = "बंद करें";
-                powerButton.classList.add("on");
-                logMessage("Power turned ON");
-            } else {
-                powerButton.textContent = "शुरू करें";
-                powerButton.classList.remove("on");
-                logMessage("Power turned OFF");
-                stopAllCommands();
-            }
+        // Set up location buttons
+        function setupLocationButton(id, location) {
+            const button = document.getElementById(id);
             
-            // Update control buttons state based on power
-            updateControlButtonsState();
-        });
+            button.addEventListener("click", () => {
+                // If turning on, turn off all other locations first
+                if (!locationStates[location]) {
+                    // Turn off all locations
+                    for (const loc in locationStates) {
+                        if (locationStates[loc]) {
+                            // Turn this location off
+                            locationStates[loc] = false;
+                            
+                            // Update its button
+                            const locButton = document.getElementById(loc.toLowerCase());
+                            locButton.querySelector('.location-action').textContent = "शुरू करें";
+                            locButton.classList.remove("on");
+                            
+                            // Send power off command
+                            sendCommand("POWER", false, loc);
+                            logMessage(`${loc} turned OFF`);
+                        }
+                    }
+                    
+                    // Stop any active commands
+                    stopAllCommands();
+                }
+                
+                // Toggle the current location
+                locationStates[location] = !locationStates[location];
+                
+                if (locationStates[location]) {
+                    // Turn location ON
+                    button.querySelector('.location-action').textContent = "बंद करें";
+                    button.classList.add("on");
+                    logMessage(`${location} turned ON`);
+                    sendCommand("POWER", true, location);
+                    
+                    // Set as active location
+                    activeLocation = location;
+                } else {
+                    // Turn location OFF
+                    button.querySelector('.location-action').textContent = "शुरू करें";
+                    button.classList.remove("on");
+                    logMessage(`${location} turned OFF`);
+                    sendCommand("POWER", false, location);
+                    
+                    // Clear active location
+                    activeLocation = null;
+                }
+                
+                // Update control buttons state
+                updateControlButtonsState();
+            });
+        }
+        
+        // Set up location buttons
+        setupLocationButton("surat", "SURAT");
+        setupLocationButton("ahmedabad", "AHMEDABAD");
+        setupLocationButton("delhi", "DELHI");
         
         // Initially log the setup
-        logMessage("Controller interface loaded");
+        logMessage("Controller interface loaded with multiple locations");
     </script>
 </body>
 </html>
