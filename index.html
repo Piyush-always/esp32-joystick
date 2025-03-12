@@ -227,7 +227,7 @@
     <script>
         // Fixed MQTT settings
         const brokerHost = "broker.emqx.io";
-        const brokerPort = 1883; //1883 TCP port  // 8084 WebSocket port
+        const brokerPort = 8084; //WebSocket port
         
         // Location-specific topics
         const TOPICS = {
@@ -302,7 +302,7 @@
                 timeout: 3,
                 onSuccess: onConnect,
                 onFailure: onFailure,
-                // useSSL: true // Use SSL for port 8084
+                useSSL: true // Use SSL for port 8084
             };
             
             updateConnectionStatus("Connecting to " + brokerHost + ":" + brokerPort + "...", false);
