@@ -196,7 +196,7 @@
                 <div class="location-action">शुरू करें</div>
             </button>
             <button id="delhi" class="location">
-                <div class="location-name">दिल्ली</div>
+                <div class="location-name">उज्जैन</div>
                 <div class="location-action">शुरू करें</div>
             </button>
         </div>
@@ -441,7 +441,13 @@
 
         function logMessage(message) {
             const statusElement = document.getElementById("status-messages");
-            const timestamp = new Date().toLocaleTimeString();
+            const now = new Date();
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const seconds = now.getSeconds().toString().padStart(2, '0');
+            const milliseconds = now.getMilliseconds().toString().padStart(3, '0');
+            const timestamp = `${hours}:${minutes}:${seconds}.${milliseconds}`;
+            
             statusElement.innerHTML += `<div>[${timestamp}] ${message}</div>`;
             statusElement.scrollTop = statusElement.scrollHeight;
         }
