@@ -4,6 +4,8 @@
 const char* ssid = "test";
 const char* password = "12345678";
 
+char state_log[2][15] = {"...........OFF","ON"};
+
 // MQTT Broker settings
 const char* mqtt_server = "broker.emqx.io"; // Public broker
 const int mqtt_port = 1883;
@@ -20,16 +22,31 @@ const int PIN_UP1 = 27;
 const int PIN_DOWN1 = 14;
 const int PIN_UP2 = 12;
 const int PIN_DOWN2 = 13;
+const int PIN_POWER = 15; // New pin for power relay
+
+// Direction constants
+const int DIR_LEFT = 0;
+const int DIR_RIGHT = 1;
+const int DIR_UP1 = 2;
+const int DIR_DOWN1 = 3;
+const int DIR_UP2 = 4;
+const int DIR_DOWN2 = 5;
+const int DIR_POWER = 6; // New direction for power control
+
+// Power command values
+const byte POWER_ON = 0x86;  // 10000110
+const byte POWER_OFF = 0x06; // 00000110
 
 // Direct mapping array for fast lookup
-const int RELAY_PINS[] = {PIN_LEFT, PIN_RIGHT, PIN_UP1, PIN_DOWN1, PIN_UP2, PIN_DOWN2};
-const int DIRECTION_COUNT = 6;
+const int RELAY_PINS[] = {PIN_LEFT, PIN_RIGHT, PIN_UP1, PIN_DOWN1, PIN_UP2, PIN_DOWN2, PIN_POWER};
+const int DIRECTION_COUNT = 7; // Now including power
 
 // Command structure:
 // Single byte format:
 // Bits 0-2: Direction index (0-5)
 // Bit 7: State (0 for LOW/off, 1 for HIGH/on)
 // Example: 0x81 = Direction 1 (RIGHT) + HIGH state (0x80)
+// Special case: Power commands use 0x86 for ON and 0x06 for OFF
 
 // MQTT connection variables
 WiFiClient espClient;
@@ -54,12 +71,25 @@ void setup_wifi() {
 
 // Fast command processor for single-byte command format
 void processCommand(byte commandByte) {
-  // Extract direction and state from command byte
+  // Check for power commands first
+  if (commandByte == POWER_ON) {
+    digitalWrite(PIN_POWER, LOW); // Power ON (active LOW)
+    Serial.println("Power ON command received");
+    return;
+  } 
+  else if (commandByte == POWER_OFF) {
+    digitalWrite(PIN_POWER, HIGH); // Power OFF (inactive HIGH)
+    Serial.println("Power OFF command received");
+    return;
+  }
+
+  // For other commands, extract direction and state
   int dirIndex = commandByte & 0x07;  // Use bottom 3 bits for direction (0-7)
   bool activateRelay = (commandByte & 0x80) != 0;  // Bit 7 for state
-  Serial.printf("   [%d] ,   [%d] \n", dirIndex, activateRelay);  
+  Serial.printf("   [%d] ,   %s \n", dirIndex, state_log[activateRelay]);  
+  
   // Validate direction
-  if (dirIndex < DIRECTION_COUNT) {
+  if (dirIndex < DIRECTION_COUNT - 1) { // -1 because power is handled separately
     // Check if we need to handle opposing directions
     if (dirIndex == 0 || dirIndex == 1) {  // LEFT/RIGHT pair
       // Latest command wins
@@ -109,6 +139,7 @@ void setup() {
   pinMode(PIN_DOWN1, OUTPUT);
   pinMode(PIN_UP2, OUTPUT);
   pinMode(PIN_DOWN2, OUTPUT);
+  pinMode(PIN_POWER, OUTPUT);
   
   // Set all relays to inactive initially
   // INVERTED LOGIC: Set HIGH to deactivate relays
