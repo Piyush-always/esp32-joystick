@@ -225,17 +225,19 @@
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
     <script>
+                // Replace your existing script section with this optimized version
+
         // Fixed MQTT settings
         const brokerHost = "broker.emqx.io";
         const brokerPort = 8084; //WebSocket port
-        
+
         // Location-specific topics
         const TOPICS = {
             SURAT: "esp32controller/surat_cmd",
             AHMEDABAD: "esp32controller/ahmedabad_cmd",
             DELHI: "esp32controller/delhi_cmd"
         };
-        
+
         // Command byte mapping
         const CMD = {
             LEFT: { ON: 0x80, OFF: 0x00 },
@@ -246,28 +248,26 @@
             DOWN2: { ON: 0x85, OFF: 0x05 },
             POWER: { ON: 0x86, OFF: 0x06 }
         };
-        
+
         // Generate a random client ID
         const clientId = "WebClient-" + Math.random().toString(16).substr(2, 8);
-        
+
         // Create MQTT client
         let client = null;
-        
-        // Command interval tracking
+
+        // Track active buttons for UI state
         let activeCommands = new Set();
-        let commandIntervals = {};
-        const COMMAND_REPEAT_INTERVAL = 50; // ms
-        
+
         // Location power states
         let locationStates = {
             SURAT: false,
             AHMEDABAD: false,
             DELHI: false
         };
-        
+
         // Currently active location for directional controls
         let activeLocation = null;
-        
+
         let controlButtons;
 
         // Initialize connection on page load
@@ -283,7 +283,7 @@
             
             initializeAndConnect();
         });
-        
+
         function initializeAndConnect() {
             updateConnectionStatus("Initializing connection...", false);
             
@@ -296,13 +296,14 @@
             // Connect to the broker
             connect();
         }
-        
+
         function connect() {
             const options = {
                 timeout: 3,
                 onSuccess: onConnect,
                 onFailure: onFailure,
-                useSSL: true // Use SSL for port 8084
+                useSSL: true, // Use SSL for port 8084
+                mqttVersion: 4 // Use MQTT v3.1.1 for better compatibility
             };
             
             updateConnectionStatus("Connecting to " + brokerHost + ":" + brokerPort + "...", false);
@@ -315,7 +316,7 @@
                 logMessage("Connection error: " + error.message);
             }
         }
-        
+
         function onConnect() {
             updateConnectionStatus("Connected to " + brokerHost + ":" + brokerPort, true);
             logMessage("Connected to MQTT broker: " + brokerHost);
@@ -328,7 +329,7 @@
             // Control buttons are still disabled until a location is turned on
             updateControlButtonsState();
         }
-        
+
         function onFailure(error) {
             updateConnectionStatus("Connection failed: " + error.errorMessage, false);
             logMessage("Connection failed: " + error.errorMessage);
@@ -341,9 +342,13 @@
             // Try to reconnect after delay
             setTimeout(initializeAndConnect, 5000);
         }
-        
+
         function onConnectionLost(responseObject) {
-            stopAllCommands();
+            // Reset UI states
+            activeCommands.clear();
+            controlButtons.forEach(button => {
+                button.classList.remove('active');
+            });
             
             // Disable all buttons when connection is lost
             document.querySelectorAll('button').forEach(button => {
@@ -358,7 +363,7 @@
                 setTimeout(initializeAndConnect, 5000);
             }
         }
-        
+
         function sendCommand(cmdType, isOn, location) {
             if (!client || !client.isConnected()) {
                 logMessage("Not connected. Cannot send command.");
@@ -377,6 +382,8 @@
             
             const message = new Paho.MQTT.Message(byteArray.buffer);
             message.destinationName = topic;
+            message.qos = 0; // QoS 0 for lowest latency
+            message.retained = false; // Explicitly set no message retention
             
             try {
                 client.send(message);
@@ -385,66 +392,42 @@
                 logMessage(`Error sending command to ${location}: ${error.message}`);
             }
         }
-        
-        function startCommandInterval(commandType) {
+
+        function handleButtonPress(commandType) {
             if (!activeLocation || !locationStates[activeLocation]) {
                 logMessage("No active location is ON. Turn on a location first.");
                 return;
             }
             
-            // If already active, don't restart the interval
-            if (activeCommands.has(commandType)) {
-                return;
-            }
-            
-            // Add to active commands
+            // Update active commands tracking
             activeCommands.add(commandType);
             
             // Update button UI
             const button = document.getElementById(commandType.toLowerCase());
             button.classList.add('active');
             
-            // Send initial command
+            // Send single ON command
             sendCommand(commandType, true, activeLocation);
-            
-            // Set up interval for this command - using a separate interval for each command
-            commandIntervals[commandType] = setInterval(() => {
-                sendCommand(commandType, true, activeLocation);
-            }, COMMAND_REPEAT_INTERVAL);
-            
-            logMessage(`Started ${commandType} command for ${activeLocation}`);
+            logMessage(`${commandType} command ON sent to ${activeLocation}`);
         }
-        
-        function stopCommand(commandType) {
+
+        function handleButtonRelease(commandType) {
             if (activeCommands.has(commandType)) {
-                // Clear interval
-                clearInterval(commandIntervals[commandType]);
-                delete commandIntervals[commandType];
-                
-                // Send off command to the active location
-                if (activeLocation) {
-                    sendCommand(commandType, false, activeLocation);
-                }
-                
-                // Remove from active commands
+                // Update tracking
                 activeCommands.delete(commandType);
                 
                 // Update button UI
                 const button = document.getElementById(commandType.toLowerCase());
                 button.classList.remove('active');
                 
-                logMessage(`Stopped ${commandType} command for ${activeLocation}`);
+                // Send OFF command if we have an active location
+                if (activeLocation) {
+                    sendCommand(commandType, false, activeLocation);
+                    logMessage(`${commandType} command OFF sent to ${activeLocation}`);
+                }
             }
         }
-        
-        function stopAllCommands() {
-            // Create a copy of the set to avoid issues with modification during iteration
-            const commandsToStop = Array.from(activeCommands);
-            commandsToStop.forEach(commandType => {
-                stopCommand(commandType);
-            });
-        }
-        
+
         function updateConnectionStatus(status, isConnected = false) {
             const statusElement = document.getElementById("connection-status");
             statusElement.textContent = status;
@@ -455,14 +438,14 @@
                 statusElement.className = "disconnected";
             }
         }
-        
+
         function logMessage(message) {
             const statusElement = document.getElementById("status-messages");
             const timestamp = new Date().toLocaleTimeString();
             statusElement.innerHTML += `<div>[${timestamp}] ${message}</div>`;
             statusElement.scrollTop = statusElement.scrollHeight;
         }
-        
+
         function updateControlButtonsState() {
             const anyLocationOn = locationStates.SURAT || locationStates.AHMEDABAD || locationStates.DELHI;
             const isConnected = client && client.isConnected();
@@ -471,7 +454,7 @@
                 button.disabled = !anyLocationOn || !isConnected;
             });
         }
-        
+
         // Helper function to set up control buttons
         function setupControlButton(id, commandType) {
             const button = document.getElementById(id);
@@ -480,39 +463,39 @@
             button.addEventListener("mousedown", (e) => {
                 e.preventDefault();
                 if (!button.disabled) {
-                    startCommandInterval(commandType);
+                    handleButtonPress(commandType);
                 }
             });
             
             button.addEventListener("mouseup", (e) => {
                 e.preventDefault();
-                stopCommand(commandType);
+                handleButtonRelease(commandType);
             });
             
             button.addEventListener("mouseleave", (e) => {
                 e.preventDefault();
-                stopCommand(commandType);
+                handleButtonRelease(commandType);
             });
             
             // For mobile
             button.addEventListener("touchstart", (e) => {
                 e.preventDefault(); // Prevent default behavior
                 if (!button.disabled) {
-                    startCommandInterval(commandType);
+                    handleButtonPress(commandType);
                 }
             });
             
             button.addEventListener("touchend", (e) => {
                 e.preventDefault(); // Prevent default behavior
-                stopCommand(commandType);
+                handleButtonRelease(commandType);
             });
             
             button.addEventListener("touchcancel", (e) => {
                 e.preventDefault(); // Prevent default behavior
-                stopCommand(commandType);
+                handleButtonRelease(commandType);
             });
         }
-        
+
         // Set up button event listeners for control buttons
         setupControlButton("left", "LEFT");
         setupControlButton("right", "RIGHT");
@@ -520,7 +503,7 @@
         setupControlButton("up2", "UP2");
         setupControlButton("down1", "DOWN1");
         setupControlButton("down2", "DOWN2");
-        
+
         // Set up location buttons
         function setupLocationButton(id, location) {
             const button = document.getElementById(id);
@@ -545,8 +528,11 @@
                         }
                     }
                     
-                    // Stop any active commands
-                    stopAllCommands();
+                    // Reset UI states for any active commands
+                    activeCommands.clear();
+                    controlButtons.forEach(button => {
+                        button.classList.remove('active');
+                    });
                 }
                 
                 // Toggle the current location
@@ -576,14 +562,14 @@
                 updateControlButtonsState();
             });
         }
-        
+
         // Set up location buttons
         setupLocationButton("surat", "SURAT");
         setupLocationButton("ahmedabad", "AHMEDABAD");
         setupLocationButton("delhi", "DELHI");
-        
+
         // Initially log the setup
-        logMessage("Controller interface loaded with multiple locations");
+        logMessage("Controller interface loaded with optimized MQTT settings");
     </script>
 </body>
 </html>
