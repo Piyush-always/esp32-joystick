@@ -382,7 +382,7 @@
             
             const message = new Paho.MQTT.Message(byteArray.buffer);
             message.destinationName = topic;
-            message.qos = 0; // QoS 0 for lowest latency
+            message.qos = 2; // QoS 0 for lowest latency
             message.retained = false; // Explicitly set no message retention
             
             try {
